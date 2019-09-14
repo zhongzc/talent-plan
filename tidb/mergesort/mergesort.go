@@ -8,75 +8,77 @@ import (
 // MergeSort performs the merge sort algorithm.
 // Please supplement this function to accomplish the home work.
 func MergeSort(src []int64) {
-	mergeSort(src)
+	mergeSort(src, chunk{0, len(src)}, make([]int64, len(src)))
 }
 
 var ParallelRate = runtime.NumCPU()
 var InsertThresholds = 1 << 8
 
-func mergeSort(src []int64) {
-	if len(src) <= InsertThresholds || len(src) <= ParallelRate {
-		insertSort(src)
+type chunk struct {
+	from  int
+	limit int
+}
+
+func (c chunk) size() int {
+	return c.limit - c.from
+}
+
+func mergeSort(src []int64, c chunk, aux []int64) {
+	if c.size() <= InsertThresholds || c.size() <= ParallelRate {
+		insertSort(src, c)
 		return
 	}
 
-	chunks := sliceChuck(src, ParallelRate)
+	chunks := sliceChuck(c, ParallelRate)
 
 	var wg sync.WaitGroup
 	wg.Add(len(chunks))
 	for _, c := range chunks {
-		go (func(c []int64) {
-			mergeSort(c)
+		go (func(c chunk) {
+			mergeSort(src, c, aux)
 			wg.Done()
 		})(c)
 	}
 	wg.Wait()
 
-	for i, s := range chunks {
-		chunks[i] = append([]int64{}, s...)
-	}
-	merge(src, chunks)
+	copy(aux[c.from:c.limit], src[c.from:c.limit])
+	merge(src, aux, c, chunks)
 }
 
-func sliceChuck(is []int64, n int) [][]int64 {
-	var res = make([][]int64, 0, n)
-	sz := len(is) / n
+func sliceChuck(c chunk, n int) []chunk {
+	var res = make([]chunk, 0, n)
+	sz := c.size() / n
 	for i := 0; i < n; i++ {
 		if i == n-1 {
-			res = append(res, is[i*sz:])
+			res = append(res, chunk{c.from + i*sz, c.limit})
 		} else {
-			res = append(res, is[i*sz:(i+1)*sz:(i+1)*sz])
+			res = append(res, chunk{c.from + i*sz, c.from + (i + 1) * sz})
 		}
 	}
 	return res
 }
 
-func merge(tgt []int64, chunks [][]int64) {
-	n := len(chunks)
-	idxes := make([]int, 0, n)
-	for i := 0; i < n; i++ {
-		idxes = append(idxes, len(chunks[i])-1)
-	}
+func merge(tgt []int64, aux []int64, c chunk, chunks []chunk) {
 
-	for i := len(tgt) - 1; i >= 0; i-- {
+	for i := c.limit - 1; i >= c.from; i-- {
 		idx := -1
-		for j := 0; j < n; j++ {
-			if idxes[j] < 0 {
+		for j := 0; j < len(chunks); j++ {
+			if chunks[j].size() == 0 {
 				continue
 			} else if idx == -1 {
 				idx = j
-			} else if chunks[j][idxes[j]] > chunks[idx][idxes[idx]] {
+			} else if aux[chunks[j].limit-1] > aux[chunks[idx].limit-1] {
 				idx = j
 			}
 		}
-		tgt[i] = chunks[idx][idxes[idx]]
-		idxes[idx] -= 1
+		tgt[i] = aux[chunks[idx].limit-1]
+		chunks[idx].limit -= 1
 	}
 }
 
-func insertSort(src []int64) {
-	for i := 0; i < len(src); i++ {
-		for j := i - 1; j >= 0; j-- {
+func insertSort(src []int64, c chunk) {
+	for i := c.from; i < c.limit; i++ {
+		for j := i - 1; j >= c.from; j-- {
 			if src[j] > src[j+1] {
 				src[j], src[j+1] = src[j+1], src[j]
 			}
