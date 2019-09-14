@@ -70,30 +70,6 @@ func splitChunks(c chunk, n int) []chunk {
 	return res
 }
 
-type mg struct {
-	idx   int
-	value int64
-}
-type mgHeap []mg
-
-func (h mgHeap) Len() int           { return len(h) }
-func (h mgHeap) Less(i, j int) bool { return h[i].value < h[j].value }
-func (h mgHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-
-func (h *mgHeap) Push(x interface{}) {
-	// Push and Pop use pointer receivers because they modify the slice's length,
-	// not just its contents.
-	*h = append(*h, x.(mg))
-}
-
-func (h *mgHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[0 : n-1]
-	return x
-}
-
 /*
 	merge a bunch of sub-slices from aux slice to tgt slice
 	c      -- the sub-slice will be merged in
@@ -104,17 +80,17 @@ func merge(tgt []int64, aux []int64, c chunk, chunks []chunk) {
 	heap.Init(h)
 	for i, ck := range chunks {
 		if ck.size() > 0 {
-			heap.Push(h, mg{i, aux[ck.from]})
+			heap.Push(h, &mg{i, aux[ck.from]})
 		}
 	}
 	for i := c.from; i < c.limit; i++ {
-		m := heap.Pop(h).(mg)
+		m := heap.Pop(h).(*mg)
 		tgt[i] = m.value
 
 		chunks[m.idx].from++
-
 		if chunks[m.idx].size() > 0 {
-			heap.Push(h, mg{m.idx, aux[chunks[m.idx].from]})
+			m.value = aux[chunks[m.idx].from]
+			heap.Push(h, m)
 		}
 	}
 }
@@ -138,4 +114,27 @@ type chunk struct {
 
 func (c chunk) size() int {
 	return c.limit - c.from
+}
+
+
+// a heap for merge phase
+type mg struct {
+	idx   int
+	value int64
+}
+type mgHeap []*mg
+
+func (h mgHeap) Len() int           { return len(h) }
+func (h mgHeap) Less(i, j int) bool { return h[i].value < h[j].value }
+func (h mgHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *mgHeap) Push(x interface{}) {
+	*h = append(*h, x.(*mg))
+}
+
+func (h *mgHeap) Pop() interface{} {
+	last := len(*h) - 1
+	var x *mg
+	x, *h = (*h)[last], (*h)[0:last]
+	return x
 }
