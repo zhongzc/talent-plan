@@ -6,12 +6,6 @@ import (
 	"sync"
 )
 
-// MergeSort performs the merge sort algorithm.
-// Please supplement this function to accomplish the home work.
-func MergeSort(src []int64) {
-	mergeSort(src, chunk{0, len(src)}, make([]int64, len(src)))
-}
-
 var (
 	// ParallelRate -- the number of sub- merge tasks split by a merge task
 	//                 default: the number of cpu cores
@@ -20,6 +14,15 @@ var (
 	//                     when unsorted slice's size reaches this boundary
 	InsertThresholds = 1 << 8
 )
+
+// MergeSort performs the merge sort algorithm.
+// Please supplement this function to accomplish the home work.
+func MergeSort(src []int64) {
+	if ParallelRate <= 1 {
+		ParallelRate = 2
+	}
+	mergeSort(src, chunk{0, len(src)}, make([]int64, len(src)))
+}
 
 /*
 	sort a slice thunk using merge sort algroithm
