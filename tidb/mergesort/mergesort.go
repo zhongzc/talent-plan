@@ -7,19 +7,36 @@ import (
 )
 
 var (
-	// ParallelRate -- the number of sub- merge tasks split by a merge task
-	//                 default: the number of cpu cores
-	ParallelRate = runtime.NumCPU()
-	// InsertThresholds -- the merge sort function will turn to insert sort
-	//                     when unsorted slice's size reaches this boundary
-	InsertThresholds = 1 << 8
+	// parallelRate --
+	//   the number of sub- merge tasks split by a merge task
+	//   default: the number of cpu cores
+	parallelRate = runtime.NumCPU()
+
+	// insertionSortThreshold --
+	//   the merge sort function will turn to insert sort
+	//   when unsorted slice's size reaches this boundary
+	insertionSortThreshold = 1 << 8
+
+	// heapMergeThreshold --
+	//   using heapMerge rather than simpleMerge when
+	//   parallelRate reaches this boundary
+	heapMergeThreshold = 36
+
+	// MergeStg --
+	//   will be heapMerge when parallelRate >= heapMergeThreshold
+	//   default: simpleMerge
+	mergeStg mergeStrategy = &simpleMerge{}
 )
 
 // MergeSort performs the merge sort algorithm.
 // Please supplement this function to accomplish the home work.
 func MergeSort(src []int64) {
-	if ParallelRate <= 1 {
-		ParallelRate = 2
+	// parallelRate should be at lease 2
+	if parallelRate <= 1 {
+		parallelRate = 2
+	}
+	if parallelRate >= heapMergeThreshold {
+		mergeStg = &heapMerge{}
 	}
 	mergeSort(src, chunk{0, len(src)}, make([]int64, len(src)))
 }
@@ -30,12 +47,13 @@ func MergeSort(src []int64) {
 	aux -- a auxiliary slice, its size must greater than or equal to src's
 */
 func mergeSort(src []int64, c chunk, aux []int64) {
-	if c.size() <= InsertThresholds || c.size() <= ParallelRate {
-		insertSort(src, c)
+	if c.size() <= insertionSortThreshold || c.size() <= parallelRate {
+		insertionSort(src, c)
 		return
 	}
 
-	chunks := splitChunks(c, ParallelRate)
+	// divide phase
+	chunks := splitChunks(c, parallelRate)
 
 	// each chunk of the entire slice will be processing
 	// in a new goroutine
@@ -53,10 +71,11 @@ func mergeSort(src []int64, c chunk, aux []int64) {
 	// the sub-slices to be used would be erased
 	copy(aux[c.from:c.limit], src[c.from:c.limit])
 
-	merge(src, aux, c, chunks)
+	// merge phase
+	mergeStg.merge(src, aux, c, chunks)
 }
 
-// split a chunk c to n sub-chunks
+// divide a chunk c into n sub-chunks
 func splitChunks(c chunk, n int) []chunk {
 	var res = make([]chunk, 0, n)
 	sz := c.size() / n
@@ -70,12 +89,18 @@ func splitChunks(c chunk, n int) []chunk {
 	return res
 }
 
-/*
-	merge a bunch of sub-slices from aux slice to tgt slice
-	c      -- the sub-slice will be merged in
-	chunks -- sorted sub-slices, will be merged to c
-*/
-func merge(tgt []int64, aux []int64, c chunk, chunks []chunk) {
+type mergeStrategy interface {
+	/*
+		merge a bunch of sub-slices from aux slice to tgt slice
+		c      -- the sub-slice will be merged in
+		chunks -- sorted sub-slices, will be merged to c
+	*/
+	merge(tgt []int64, aux []int64, c chunk, chunks []chunk)
+}
+
+// heapMerge's time complexity is O(n*log(m)), n for c's size and m for parallelRate
+type heapMerge struct{}
+func (hm *heapMerge) merge(tgt []int64, aux []int64, c chunk, chunks []chunk) {
 	h := &mgHeap{}
 	heap.Init(h)
 	for i, ck := range chunks {
@@ -95,8 +120,27 @@ func merge(tgt []int64, aux []int64, c chunk, chunks []chunk) {
 	}
 }
 
-// insert sort is for small size slice
-func insertSort(src []int64, c chunk) {
+// simpleMerge's time complexity is O(n*m), n for c's size and m for parallelRate
+type simpleMerge struct{}
+func (sm *simpleMerge) merge(tgt []int64, aux []int64, c chunk, chunks []chunk) {
+	for i := c.limit - 1; i >= c.from; i-- {
+		idx := -1
+		for j := 0; j < len(chunks); j++ {
+			if chunks[j].size() == 0 {
+				continue
+			} else if idx == -1 {
+				idx = j
+			} else if aux[chunks[j].limit-1] > aux[chunks[idx].limit-1] {
+				idx = j
+			}
+		}
+		tgt[i] = aux[chunks[idx].limit-1]
+		chunks[idx].limit--
+	}
+}
+
+// insertion sort used for small size slice
+func insertionSort(src []int64, c chunk) {
 	for i := c.from; i < c.limit; i++ {
 		for j := i - 1; j >= c.from; j-- {
 			if src[j] > src[j+1] {
@@ -111,27 +155,20 @@ type chunk struct {
 	from  int
 	limit int
 }
-
 func (c chunk) size() int {
 	return c.limit - c.from
 }
 
-
-// a heap for merge phase
+// heap used in merge phase
 type mg struct {
 	idx   int
 	value int64
 }
 type mgHeap []*mg
-
-func (h mgHeap) Len() int           { return len(h) }
-func (h mgHeap) Less(i, j int) bool { return h[i].value < h[j].value }
-func (h mgHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-
-func (h *mgHeap) Push(x interface{}) {
-	*h = append(*h, x.(*mg))
-}
-
+func (h mgHeap) Len() int            { return len(h) }
+func (h mgHeap) Less(i, j int) bool  { return h[i].value < h[j].value }
+func (h mgHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *mgHeap) Push(x interface{}) { *h = append(*h, x.(*mg)) }
 func (h *mgHeap) Pop() interface{} {
 	last := len(*h) - 1
 	var x *mg
