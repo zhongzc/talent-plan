@@ -5,26 +5,28 @@ import (
 	"sync"
 )
 
-// MergeSort performs the merge sort algorithm.
-// Please supplement this function to accomplish the home work.
-func MergeSort(src []int64) {
-	mergeSort(src, chunk{0, len(src)}, make([]int64, len(src)))
-}
-
-
 var (
 	// ParallelRate -- the number of sub- merge tasks split by a merge task
 	//                 default: the number of cpu cores
 	ParallelRate = runtime.NumCPU()
-	// InsertThresholds -- the merge sort function will turn to insert sort 
+	// InsertThresholds -- the merge sort function will turn to insert sort
 	//                     when unsorted slice's size reaches this boundary
-    InsertThresholds = 1 << 8
+	InsertThresholds = 1 << 8
 )
 
-/* 
+// MergeSort performs the merge sort algorithm.
+// Please supplement this function to accomplish the home work.
+func MergeSort(src []int64) {
+	if ParallelRate <= 1 {
+		ParallelRate = 2
+	}
+	mergeSort(src, chunk{0, len(src)}, make([]int64, len(src)))
+}
+
+/*
 	sort a slice thunk using merge sort algroithm
 	c   -- the range of slice to be sorted
-	aux -- a auxiliary slice, its size must greater than or equal to src's 
+	aux -- a auxiliary slice, its size must greater than or equal to src's
 */
 func mergeSort(src []int64, c chunk, aux []int64) {
 	if c.size() <= InsertThresholds || c.size() <= ParallelRate {
@@ -61,7 +63,7 @@ func splitChunks(c chunk, n int) []chunk {
 		if i == n-1 {
 			res = append(res, chunk{c.from + i*sz, c.limit})
 		} else {
-			res = append(res, chunk{c.from + i*sz, c.from + (i + 1) * sz})
+			res = append(res, chunk{c.from + i*sz, c.from + (i+1)*sz})
 		}
 	}
 	return res
