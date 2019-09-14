@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/heap"
 	"runtime"
 	"sync"
 )
@@ -11,20 +12,19 @@ func MergeSort(src []int64) {
 	mergeSort(src, chunk{0, len(src)}, make([]int64, len(src)))
 }
 
-
 var (
 	// ParallelRate -- the number of sub- merge tasks split by a merge task
 	//                 default: the number of cpu cores
 	ParallelRate = runtime.NumCPU()
-	// InsertThresholds -- the merge sort function will turn to insert sort 
+	// InsertThresholds -- the merge sort function will turn to insert sort
 	//                     when unsorted slice's size reaches this boundary
-    InsertThresholds = 1 << 8
+	InsertThresholds = 1 << 8
 )
 
-/* 
+/*
 	sort a slice thunk using merge sort algroithm
 	c   -- the range of slice to be sorted
-	aux -- a auxiliary slice, its size must greater than or equal to src's 
+	aux -- a auxiliary slice, its size must greater than or equal to src's
 */
 func mergeSort(src []int64, c chunk, aux []int64) {
 	if c.size() <= InsertThresholds || c.size() <= ParallelRate {
@@ -61,10 +61,34 @@ func splitChunks(c chunk, n int) []chunk {
 		if i == n-1 {
 			res = append(res, chunk{c.from + i*sz, c.limit})
 		} else {
-			res = append(res, chunk{c.from + i*sz, c.from + (i + 1) * sz})
+			res = append(res, chunk{c.from + i*sz, c.from + (i+1)*sz})
 		}
 	}
 	return res
+}
+
+type mg struct {
+	idx   int
+	value int64
+}
+type mgHeap []mg
+
+func (h mgHeap) Len() int           { return len(h) }
+func (h mgHeap) Less(i, j int) bool { return h[i].value < h[j].value }
+func (h mgHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *mgHeap) Push(x interface{}) {
+	// Push and Pop use pointer receivers because they modify the slice's length,
+	// not just its contents.
+	*h = append(*h, x.(mg))
+}
+
+func (h *mgHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	return x
 }
 
 /*
@@ -73,19 +97,22 @@ func splitChunks(c chunk, n int) []chunk {
 	chunks -- sorted sub-slices, will be merged to c
 */
 func merge(tgt []int64, aux []int64, c chunk, chunks []chunk) {
-	for i := c.limit - 1; i >= c.from; i-- {
-		idx := -1
-		for j := 0; j < len(chunks); j++ {
-			if chunks[j].size() == 0 {
-				continue
-			} else if idx == -1 {
-				idx = j
-			} else if aux[chunks[j].limit-1] > aux[chunks[idx].limit-1] {
-				idx = j
-			}
+	h := &mgHeap{}
+	heap.Init(h)
+	for i, ck := range chunks {
+		if ck.size() > 0 {
+			heap.Push(h, mg{i, aux[ck.from]})
 		}
-		tgt[i] = aux[chunks[idx].limit-1]
-		chunks[idx].limit--
+	}
+	for i := c.from; i < c.limit; i++ {
+		m := heap.Pop(h).(mg)
+		tgt[i] = m.value
+
+		chunks[m.idx].from++
+
+		if chunks[m.idx].size() > 0 {
+			heap.Push(h, mg{m.idx, aux[chunks[m.idx].from]})
+		}
 	}
 }
 
