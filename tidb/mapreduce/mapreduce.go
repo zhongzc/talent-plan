@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"sort"
 	"strconv"
 	"sync"
 )
@@ -130,10 +131,18 @@ func (c *MRCluster) worker() {
 					SafeClose(f, nil)
 				}
 
+
+				var keys []string
+				for k := range k2vs {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+
+
 				n := mergeName(t.dataDir, t.jobName, t.taskNumber)
 				file, buf := CreateFileAndBuf(n)
-				for k, vs := range k2vs {
-					WriteToBuf(buf, t.reduceF(k, vs))
+				for _, key := range keys {
+					WriteToBuf(buf, t.reduceF(key, k2vs[key]))
 				}
 				SafeClose(file, buf)
 			}
