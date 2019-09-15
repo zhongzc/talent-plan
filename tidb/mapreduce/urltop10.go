@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -17,6 +17,7 @@ func URLTop10(nWorkers int) RoundsArgs {
 		ReduceFunc: URLCountReduce,
 		NReduce:    1,
 	})
+
 	args = append(args, RoundArgs{
 		MapFunc:    URLTop10Map,
 		ReduceFunc: URLTop10Reduce,
@@ -25,54 +26,61 @@ func URLTop10(nWorkers int) RoundsArgs {
 	return args
 }
 
-const (
-	cMAX = 1000000000
-)
-
-// URLCountMap -
+// URLCountMap .
 func URLCountMap(filename string, contents string) []KeyValue {
 	lines := strings.Split(string(contents), "\n")
-	kvs := make([]KeyValue, 0, len(lines))
+	acc := make(map[string]int, len(lines))
 	for _, l := range lines {
 		l = strings.TrimSpace(l)
 		if len(l) != 0 {
-			kvs = append(kvs, KeyValue{Key: l})
+			acc[l]++
 		}
+	}
+	kvs := make([]KeyValue, 0, len(acc))
+	for k, v := range acc {
+		kvs = append(kvs, KeyValue{k, strconv.Itoa(v)})
 	}
 	return kvs
 }
 
-// URLCountReduce -
+// URLCountReduce .
 func URLCountReduce(key string, values []string) string {
-	return fmt.Sprintf("%09s %s\n", strconv.Itoa(cMAX-len(values)), key)
+	cnt := 0
+	for _, v := range values {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			panic(err)
+		}
+		cnt += n
+	}
+	return fmt.Sprintf("%s %s\n", key, strconv.Itoa(cnt))
 }
 
-// URLTop10Map is the map function in the second round
+// URLTop10Map .
 func URLTop10Map(filename string, contents string) []KeyValue {
-	lines := strings.Split(contents, "\n")
-	sort.Strings(lines)
-	kvs := make([]KeyValue, 0, 10)
-	for _, l := range lines {
-		if len(kvs) == 10 {
-			break
-		}
-
-		l := strings.TrimSpace(l)
-		if len(l) == 0 {
+	lines := strings.Split(string(contents), "\n")
+	cnts := make(map[string]int, len(lines))
+	for _, v := range lines {
+		v := strings.TrimSpace(v)
+		if len(v) == 0 {
 			continue
 		}
-
-		kvs = append(kvs, KeyValue{Key: l})
+		tmp := strings.Split(v, " ")
+		n, err := strconv.Atoi(tmp[1])
+		if err != nil {
+			panic(err)
+		}
+		cnts[tmp[0]] = n
 	}
-	return kvs
+	us, cs := TopN(cnts, 10)
+	buf := new(bytes.Buffer)
+	for i := range us {
+		_, _ = fmt.Fprintf(buf, "%s: %d\n", us[i], cs[i])
+	}
+	return []KeyValue{{"", buf.String()}}
 }
 
-// URLTop10Reduce is the reduce function in the second round
+// URLTop10Reduce .
 func URLTop10Reduce(key string, values []string) string {
-	tmp := strings.Split(key, " ")
-	n, err := strconv.Atoi(tmp[0])
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("%s: %d\n", tmp[1], cMAX - n)
+	return values[0]
 }
