@@ -116,6 +116,8 @@ func (c *MRCluster) worker() {
 				fs := make([]*os.File, t.nMap)
 				bs := make([]*bufio.Reader, t.nMap)
 				k2vs := make(map[string][]string)
+
+				// read the intermediate files to memory
 				for i := range fs {
 					n := reduceName(t.dataDir, t.jobName, i, t.taskNumber)
 					fs[i], bs[i] = OpenFileAndBuf(n)
@@ -132,6 +134,7 @@ func (c *MRCluster) worker() {
 				}
 
 
+				// sort the intermediate key/value pairs by key
 				var keys []string
 				for k := range k2vs {
 					keys = append(keys, k)
@@ -139,6 +142,7 @@ func (c *MRCluster) worker() {
 				sort.Strings(keys)
 
 
+				// invoke the reduceF and write reduceF's output to disk
 				n := mergeName(t.dataDir, t.jobName, t.taskNumber)
 				file, buf := CreateFileAndBuf(n)
 				for _, key := range keys {
@@ -213,7 +217,7 @@ func (c *MRCluster) run(jobName, dataDir string, mapF MapF, reduceF ReduceF, map
 		done = append(done, mergeName(dataDir, jobName, t.taskNumber))
 	}
 
-	// Done
+	// done, notify and turn next round
 	notify <- done
 }
 
