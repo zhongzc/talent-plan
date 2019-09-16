@@ -113,30 +113,41 @@ func (c *MRCluster) worker() {
 				// hint: don't encode results returned by ReduceF, and just output
 				// them into the destination file directly so that users can get
 				// results formatted as what they want.
-				fs := make([]*os.File, t.nMap)
-				bs := make([]*bufio.Reader, t.nMap)
-				k2vs := make(map[string][]string)
+				k2vs := make([]map[string][]string, t.nMap)
+				for i := range k2vs {
+					k2vs[i] = make(map[string][]string)
+				}
 
 				// read the intermediate files to memory
-				for i := range fs {
-					n := reduceName(t.dataDir, t.jobName, i, t.taskNumber)
-					fs[i], bs[i] = OpenFileAndBuf(n)
-					for dec := json.NewDecoder(bs[i]); dec.More(); {
-						var kv KeyValue
-						if err := dec.Decode(&kv); err != nil {
-							log.Fatalln(err)
+				var wg sync.WaitGroup
+				for i := range k2vs {
+					wg.Add(1)
+					go func(m map[string][]string, idx int) {
+						n := reduceName(t.dataDir, t.jobName, idx, t.taskNumber)
+						file, buf := OpenFileAndBuf(n)
+						for dec := json.NewDecoder(buf); dec.More(); {
+							var kv KeyValue
+							if err := dec.Decode(&kv); err != nil {
+								log.Fatalln(err)
+							}
+							m[kv.Key] = append(m[kv.Key], kv.Value)
 						}
-						k2vs[kv.Key] = append(k2vs[kv.Key], kv.Value)
-					}
+						SafeClose(file, nil)
+						wg.Done()
+					}(k2vs[i], i)
 				}
-				for _, f := range fs {
-					SafeClose(f, nil)
+				wg.Wait()
+				k2v := make(map[string][]string)
+				for _, m := range k2vs {
+					for k, v := range m {
+						k2v[k] = append(k2v[k], v...)
+					}
 				}
 
 
 				// sort the intermediate key/value pairs by key
 				var keys []string
-				for k := range k2vs {
+				for k := range k2v {
 					keys = append(keys, k)
 				}
 				sort.Strings(keys)
@@ -146,7 +157,7 @@ func (c *MRCluster) worker() {
 				n := mergeName(t.dataDir, t.jobName, t.taskNumber)
 				file, buf := CreateFileAndBuf(n)
 				for _, key := range keys {
-					WriteToBuf(buf, t.reduceF(key, k2vs[key]))
+					WriteToBuf(buf, t.reduceF(key, k2v[key]))
 				}
 				SafeClose(file, buf)
 			}
